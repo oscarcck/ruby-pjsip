@@ -70,18 +70,24 @@ void income_msg_callback(int (*cb)(int, void *, char *, char *, char *, long, lo
 
 /** callback wrapper function called by pjsip
  * MESSAGE status */
-static void on_pager_status_wrapper(pjsua_call_id call_id, const pj_str_t *to,
-                            const pj_str_t *body, void *user_data,
-                            pjsip_status_code status, const pj_str_t *reason)
+static void on_pager_status(pjsua_call_id call_id, const pj_str_t *to,
+                                    const pj_str_t *body, void *user_data,
+                                    pjsip_status_code status, const pj_str_t *reason)
 {
 	if (call_id == -1) {
+		PJ_UNUSED_ARG(call_id);
+		PJ_UNUSED_ARG(to);
+		PJ_UNUSED_ARG(body);
+		PJ_UNUSED_ARG(user_data);
+		PJ_UNUSED_ARG(reason);
+		
 		message_status(1, userData1, status);
 	}
 }
 
 /** callback wrapper function called by pjsip
  * Incoming IM message (i.e. MESSAGE request)!*/
-static void on_pager_wrapper(pjsua_call_id call_id, const pj_str_t *from,
+static void on_pager(pjsua_call_id call_id, const pj_str_t *from,
 		                     const pj_str_t *to, const pj_str_t *contact,
 						     const pj_str_t *mime_type, const pj_str_t *text)
 {
@@ -124,24 +130,24 @@ int init(  char *domain, char * user, char * passwd, char *proxy)
     {
 	pjsua_config cfg;
 	pjsua_logging_config log_cfg;
-
+	pjsua_media_config media_cfg;
 	pjsua_config_default(&cfg);
 	
 	/* initialize pjsua callbacks */
 	cfg.cb.on_incoming_call = &on_incoming_call;
 	cfg.cb.on_call_media_state = &on_call_media_state;
 	cfg.cb.on_call_state = &on_call_state;
-	cfg.cb.on_pager = &on_pager_wrapper;
-	cfg.cb.on_pager_status = &on_pager_status_wrapper;
+	cfg.cb.on_pager = &on_pager;
+	cfg.cb.on_pager_status = &on_pager_status;
 
 	pjsua_logging_config_default(&log_cfg);
 	log_cfg.console_level = 4;
 
+	pjsua_media_config_default(&media_cfg);
+
 	status = pjsua_init(&cfg, &log_cfg, NULL);
 	if (status != PJ_SUCCESS) error_exit("Error in pjsua_init()", status);
     }
-	pjsua_media_config media_cfg;
-	pjsua_media_config_default(&media_cfg);
 
     /* Add UDP transport. */
     {
@@ -161,13 +167,12 @@ int init(  char *domain, char * user, char * passwd, char *proxy)
 
     /* Register to SIP server by creating SIP account. */
     {
-	pjsua_acc_config cfg;
-
-	pjsua_acc_config_default(&cfg);	
-	
-	char reg_uri[5 + strlen(domain)];
+	char reg_uri[5+strlen(domain)];
 	char id[6+strlen(user)+strlen(passwd)];
 	char proxy_uri[22+strlen(proxy)];
+			
+	pjsua_acc_config cfg;
+	pjsua_acc_config_default(&cfg);	
 
 	sprintf( reg_uri, "sip:%s", domain);
 	sprintf( id, "sip:%s@%s", user, domain);
@@ -194,13 +199,15 @@ int init(  char *domain, char * user, char * passwd, char *proxy)
 int call( int acc_id, char* to, char* domain )
 {
 		char str_uri[13+strlen(to)+strlen(domain)];
-
-		sprintf( str_uri, "sip:%s@%s", to, domain);
-
-		pj_str_t uri = pj_str(str_uri);
+		pj_str_t uri = pj_str((char*)"");
 		pjsua_call_id call_id;
-		
-	    pj_status_t	status = pjsua_call_make_call(acc_id, &uri, 0, NULL, NULL, &call_id);
+		pj_status_t status = 0;
+
+		snprintf( str_uri, sizeof(str_uri), "sip:%s@%s", to, domain);
+
+		uri = pj_str(str_uri);
+
+	    status = pjsua_call_make_call(acc_id, &uri, 0, NULL, NULL, &call_id);
 
 		if (status != PJ_SUCCESS) 
 		{ 
@@ -209,18 +216,28 @@ int call( int acc_id, char* to, char* domain )
 		return call_id;
 }
 
+void endCall(int call_id)
+{
+	pjsua_call_id id = call_id;
+	pjsua_call_hangup(id, 0, NULL, NULL);	
+}
+
+
 int sendIm( int acc_id, char* to, char* domain, char* msgbody )
 {
 		char str_uri[13+strlen(to)+strlen(domain)];
-
-		sprintf( str_uri, "sip:%s@%s", to, domain);
-		
-		pj_str_t tmp_uri = pj_str(str_uri);
-		pj_str_t msg = pj_str(msgbody);
-		
-		pj_status_t	status = pjsua_im_send(acc_id, &tmp_uri, NULL, &msg, NULL, NULL);
-
+		pj_str_t tmp_uri = pj_str((char*)"");
+		pj_str_t msg = pj_str((char*)"");
+		pj_status_t status = 0;
 		int result = 1;
+
+		snprintf( str_uri, sizeof(str_uri), "sip:%s@%s", to, domain);
+
+		tmp_uri = pj_str(str_uri);
+		msg = pj_str(msgbody);
+		
+		status = pjsua_im_send(acc_id, &tmp_uri, NULL, &msg, NULL, NULL);
+		
 		if (status != PJ_SUCCESS) 
 		{ 
 			result = 0;
@@ -234,8 +251,3 @@ void destroy()
 	pjsua_destroy();
 }
 
-void endCall(int call_id)
-{
-	pjsua_call_id id = call_id;
-	pjsua_call_hangup(id, 0, NULL, NULL);	
-}
